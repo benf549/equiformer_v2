@@ -6,17 +6,6 @@ import torch
 import torch.nn as nn
 from pyexpat.model import XML_CQUANT_OPT
 
-from ocpmodels.common.registry import registry
-from ocpmodels.common.utils import conditional_grad
-from ocpmodels.models.base import BaseModel
-from ocpmodels.models.scn.sampling import CalcSpherePoints
-from ocpmodels.models.scn.smearing import (
-    GaussianSmearing,
-    LinearSigmoidSmearing,
-    SigmoidSmearing,
-    SiLUSmearing,
-)
-
 try:
     from e3nn import o3
 except ImportError:
@@ -55,8 +44,7 @@ _AVG_NUM_NODES  = 77.81317
 _AVG_DEGREE     = 23.395238876342773    # IS2RE: 100k, max_radius = 5, max_neighbors = 100
 
 
-@registry.register_model("equiformer_v2")
-class EquiformerV2_OC20(BaseModel):
+class EquiformerV2_OC20():
     """
     Equiformer with graph attention built upon SO(2) convolution and feedforward network built upon S2 activation
 
@@ -218,18 +206,20 @@ class EquiformerV2_OC20(BaseModel):
             'gaussian',
         ]
         if self.distance_function == 'gaussian':
-            self.distance_expansion = GaussianSmearing(
-                0.0,
-                self.cutoff,
-                600,
-                2.0,
-            )
-            #self.distance_expansion = GaussianRadialBasisLayer(num_basis=self.num_distance_basis, cutoff=self.max_radius)
+            # self.distance_expansion = GaussianSmearing(
+            #     0.0,
+            #     self.cutoff,
+            #     600,
+            #     2.0,
+            # )
+            self.distance_expansion = GaussianRadialBasisLayer(num_basis=self.num_distance_basis, cutoff=self.max_radius)
+            print(self.distance_expansion)
         else:
             raise ValueError
         
         # Initialize the sizes of radial functions (input channels and 2 hidden channels)
-        self.edge_channels_list = [int(self.distance_expansion.num_output)] + [self.edge_channels] * 2
+        # self.edge_channels_list = [int(self.distance_expansion.num_output)] + [self.edge_channels] * 2
+        self.edge_channels_list = [int(self.num_distance_basis)] + [self.edge_channels] * 2
 
         # Initialize atom edge embedding
         if self.share_atom_edge_embedding and self.use_atom_edge_embedding:
@@ -349,11 +339,22 @@ class EquiformerV2_OC20(BaseModel):
                 alpha_drop=0.0
             )
             
-        self.apply(self._init_weights)
-        self.apply(self._uniform_init_rad_func_linear_weights)
+        self._init_weights(self)
+        self._uniform_init_rad_func_linear_weights(self)
 
+    def generate_graph(self, data):
+        """added by ben for debug"""
+        E = 100
+        edge_index = torch.randint(0, data.natoms[0]-1, (2, 100))
+        edge_distance = torch.randn(E)
+        edge_distance_vec = torch.randn(E, 3)
+        cell_offsets = torch.randn(E, 3)
+        cell_offset_distances = torch.randn(E, 1)
+        neighbors = 24
+        return (
+            edge_index, edge_distance, edge_distance_vec, cell_offsets, cell_offset_distances, neighbors
+        )
 
-    @conditional_grad(torch.enable_grad())
     def forward(self, data):
         self.batch_size = len(data.natoms)
         self.dtype = data.pos.dtype
@@ -380,6 +381,7 @@ class EquiformerV2_OC20(BaseModel):
         edge_rot_mat = self._init_edge_rot_mat(
             data, edge_index, edge_distance_vec
         )
+        print(edge_rot_mat.shape, edge_index.shape)
 
         # Initialize the WignerD matrices and other values for spherical harmonic calculations
         for i in range(self.num_resolutions):

@@ -589,6 +589,9 @@ class TransBlockV2(torch.nn.Module):
         batch           # for GraphDropPath
     ):
 
+        print(x)
+        raise NotImplementedError("For debug purposes.")
+
         output_embedding = x
         
         x_res = output_embedding.embedding
